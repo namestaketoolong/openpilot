@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from enum import Enum, IntFlag
-from panda import Panda
 
 from cereal import car
 from panda.python import uds
@@ -26,8 +25,6 @@ class CarControllerParams:
       self.STEER_DELTA_DOWN = 40
     elif CP.carFingerprint == CAR.SUBARU_IMPREZA_2020:
       self.STEER_MAX = 1439
-    elif CP.safetyConfigs[0].safetyParam & Panda.FLAG_SUBARU_MAX_STEER_IMPREZA_2018:
-      self.STEER_MAX = 3071
     else:
       self.STEER_MAX = 2047
 
@@ -45,14 +42,35 @@ class CarControllerParams:
 
   RPM_INACTIVE = 600             # a good base rpm for zero acceleration
 
-  THROTTLE_LOOKUP_BP = [0, 2]
-  THROTTLE_LOOKUP_V = [THROTTLE_INACTIVE, THROTTLE_MAX]
 
-  RPM_LOOKUP_BP = [0, 2]
-  RPM_LOOKUP_V = [RPM_INACTIVE, RPM_MAX]
+def accel_lookup(accel, velocity):
+  """
+  accel: m/s2
+  velocity: m/s
+  """
 
-  BRAKE_LOOKUP_BP = [-3.5, 0]
-  BRAKE_LOOKUP_V = [BRAKE_MAX, BRAKE_MIN]
+  THROTTLE_COEFFS = 1796.355918409232, 31.346669573967034, 1086.575733927308
+  RPM_COEFFS = 505.701566115922, 47.375067870110755, 849.4358856004957
+  BRAKE_COEFFS = 162.20181849172002, -7.24890966299137, -113.68761091654434
+
+  if accel >= 0:
+    apply_throttle = THROTTLE_COEFFS[0] + THROTTLE_COEFFS[1] * velocity + THROTTLE_COEFFS[2] * accel
+    apply_throttle = max(CarControllerParams.THROTTLE_INACTIVE, apply_throttle)
+
+    apply_rpm = RPM_COEFFS[0] + RPM_COEFFS[1] * velocity + RPM_COEFFS[2] * accel
+    apply_rpm = max(CarControllerParams.RPM_INACTIVE, apply_rpm)
+
+    apply_brake = 0
+
+  if accel < 0:
+    apply_throttle = CarControllerParams.THROTTLE_INACTIVE
+    apply_rpm = CarControllerParams.RPM_INACTIVE
+
+    apply_brake = BRAKE_COEFFS[0] + BRAKE_COEFFS[1] * velocity + BRAKE_COEFFS[2] * accel
+
+    apply_brake = max(CarControllerParams.BRAKE_MIN, apply_brake)
+
+  return apply_throttle, apply_rpm, apply_brake
 
 
 class SubaruFlags(IntFlag):
@@ -73,10 +91,6 @@ class SubaruFlags(IntFlag):
 
 GLOBAL_ES_ADDR = 0x787
 GEN2_ES_BUTTONS_DID = b'\x11\x30'
-
-
-class SubaruFlagsSP(IntFlag):
-  SP_SUBARU_SNG = 1
 
 
 class CanBus:
